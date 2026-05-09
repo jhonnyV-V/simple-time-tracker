@@ -4,12 +4,13 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:strings"
+import "core:time"
 import mu "vendor:microui"
 import sdl "vendor:sdl3"
 
 time_blocks :: struct {
-	start: int,
-	end:   int,
+	start: i64,
+	end:   i64,
 }
 
 state := struct {
@@ -255,6 +256,38 @@ all_windows :: proc(ctx: ^mu.Context) {
 	@(static) opts := mu.Options{.NO_CLOSE}
 
 	if mu.window(ctx, "timer", mu.Rect{0, 0, 960, 540}, {.NO_TITLE, .NO_CLOSE}) {
+		mu.layout_row(ctx, {1}, 200)
+		mu.label(ctx, "")
+		mu.layout_row(ctx, {300, 100, 140}, 40)
+		mu.label(ctx, "")
+		mu.label(ctx, "start tracking")
+		if .SUBMIT in mu.button(ctx, "", state.is_tracking ? .CLOSE : .CHECK) {
+			state.is_tracking = !state.is_tracking
+			if state.is_tracking {
+				now := time.to_unix_seconds(time.now())
+				state.time_blocks[state.n_time_blocks] = time_blocks {
+					start = now,
+					end   = 0,
+				}
+				state.n_time_blocks += 1
+			} else {
+				now := time.to_unix_seconds(time.now())
+				state.time_blocks[state.n_time_blocks - 1] = time_blocks {
+					start = state.time_blocks[state.n_time_blocks - 1].start,
+					end   = now,
+				}
+			}
+		}
+		if state.n_time_blocks > 0 {
+			block := time_blocks {
+				start = state.time_blocks[state.n_time_blocks - 1].start,
+				end   = state.time_blocks[state.n_time_blocks - 1].end,
+			}
+			if block.end == 0 {
+				block.end = time.to_unix_seconds(time.now())
+			}
+			mu.label(ctx, "")
+		}
 	}
 
 	// if mu.window(ctx, "Demo Window", {40, 40, 300, 450}, opts) {
