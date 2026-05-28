@@ -1,306 +1,266 @@
 package main
-import "base:runtime"
-import "core:c"
-import "core:fmt"
-import "core:log"
-import "core:strings"
-import "core:time"
-import mu "vendor:microui"
-import sdl "vendor:sdl3"
 
-time_blocks :: struct {
-	start: i64,
-	end:   i64,
+import clay "./clay-odin"
+import "core:c"
+import "vendor:raylib"
+
+windowWidth: i32 = 1024
+windowHeight: i32 = 768
+
+syntaxImage: raylib.Texture2D = {}
+checkImage1: raylib.Texture2D = {}
+
+FONT_ID_BODY_16 :: 0
+FONT_ID_TITLE_56 :: 9
+FONT_ID_TITLE_52 :: 1
+FONT_ID_TITLE_48 :: 2
+FONT_ID_TITLE_36 :: 3
+FONT_ID_TITLE_32 :: 4
+FONT_ID_BODY_36 :: 5
+FONT_ID_BODY_30 :: 6
+FONT_ID_BODY_28 :: 7
+FONT_ID_BODY_24 :: 8
+
+COLOR_LIGHT :: clay.Color{244, 235, 230, 255}
+COLOR_LIGHT_HOVER :: clay.Color{224, 215, 210, 255}
+COLOR_BUTTON_HOVER :: clay.Color{238, 227, 225, 255}
+COLOR_BROWN :: clay.Color{61, 26, 5, 255}
+//COLOR_RED :: clay.Color {252, 67, 27, 255}
+COLOR_RED :: clay.Color{168, 66, 28, 255}
+COLOR_RED_HOVER :: clay.Color{148, 46, 8, 255}
+COLOR_ORANGE :: clay.Color{225, 138, 50, 255}
+COLOR_BLUE :: clay.Color{111, 173, 162, 255}
+COLOR_TEAL :: clay.Color{111, 173, 162, 255}
+COLOR_BLUE_DARK :: clay.Color{2, 32, 82, 255}
+COLOR_WHITE :: clay.Color{255, 255, 255, 255}
+
+// Colors for top stripe
+COLOR_TOP_BORDER_1 :: clay.Color{168, 66, 28, 255}
+COLOR_TOP_BORDER_2 :: clay.Color{223, 110, 44, 255}
+COLOR_TOP_BORDER_3 :: clay.Color{225, 138, 50, 255}
+COLOR_TOP_BORDER_4 :: clay.Color{236, 189, 80, 255}
+COLOR_TOP_BORDER_5 :: clay.Color{240, 213, 137, 255}
+
+COLOR_BLOB_BORDER_1 :: clay.Color{168, 66, 28, 255}
+COLOR_BLOB_BORDER_2 :: clay.Color{203, 100, 44, 255}
+COLOR_BLOB_BORDER_3 :: clay.Color{225, 138, 50, 255}
+COLOR_BLOB_BORDER_4 :: clay.Color{236, 159, 70, 255}
+COLOR_BLOB_BORDER_5 :: clay.Color{240, 189, 100, 255}
+
+
+HEADER_SIZE :: 40
+
+headerTextConfig := clay.TextElementConfig {
+	fontId    = FONT_ID_BODY_24,
+	fontSize  = 24,
+	textColor = {61, 26, 5, 255},
 }
 
-state := struct {
-	mu_ctx:        mu.Context,
-	atlas_texture: ^sdl.Texture,
-	is_tracking:   bool,
-	time_blocks:   [10000]time_blocks,
-	n_time_blocks: int,
-}{}
+border2pxRed := clay.BorderElementConfig {
+	width = {2, 2, 2, 2, 0},
+	color = COLOR_RED,
+}
 
-defaultContext: runtime.Context
+RaylibFont :: struct {
+	fontId: u16,
+	font:   raylib.Font,
+}
+
+raylibFonts := [dynamic]RaylibFont{}
+
+Screens :: enum {
+	Timer = 1,
+	List,
+	Labels,
+}
+selectedScreen := Screens.Timer
+
+handleHeaderButtonInteraction :: proc "c" (
+	id: clay.ElementId,
+	pointerData: clay.PointerData,
+	userData: rawptr,
+) {
+	if pointerData.state == .PressedThisFrame {
+		if int(uintptr(userData)) >= 0 && int(uintptr(userData)) <= int(Screens.Labels) {
+			selectedScreen = Screens(int(uintptr(userData)))
+		}
+	}
+}
+
+HeaderButton :: proc(text: string, onHoverData: rawptr) {
+	focusColor := clay.Color{100, 100, 100, 255}
+	defaultColor := clay.Color{140, 140, 140, 255}
+	if clay.UI()(
+	{
+		layout = {padding = {left = 16, right = 16, top = 8, bottom = 8}},
+		backgroundColor = clay.Hovered() ? focusColor : defaultColor,
+		cornerRadius = {5, 5, 5, 5},
+		border = clay.Hovered() ? {color = defaultColor, width = {1, 1, 1, 1, 0}} : {},
+	},
+	) {
+		clay.Text(
+			text,
+			clay.TextElementConfig {
+				fontId = FONT_ID_BODY_16,
+				fontSize = 16,
+				textColor = COLOR_WHITE,
+			},
+		)
+		clay.OnHover(handleHeaderButtonInteraction, onHoverData)
+	}
+}
+
+TimerView :: proc() {
+	clay.Text(
+		"TIMER VIEW",
+		clay.TextElementConfig{fontId = FONT_ID_TITLE_56, fontSize = 56, textColor = COLOR_WHITE},
+	)
+}
+
+CreateLayout :: proc(frametime: f32) -> clay.ClayArray(clay.RenderCommand) {
+	sizingExpand := clay.Sizing {
+		width  = clay.SizingGrow(),
+		height = clay.SizingGrow(),
+	}
+
+	segmentColor := clay.Color{90, 90, 90, 255}
+	radius := clay.CornerRadius{8, 8, 8, 8}
+
+	clay.BeginLayout()
+	if clay.UI(clay.ID("OuterContainer"))(
+	{
+		backgroundColor = {43, 42, 51, 255},
+		layout = {
+			sizing = sizingExpand,
+			layoutDirection = .TopToBottom,
+			padding = {left = 16, right = 16, top = 16, bottom = 16},
+			childGap = 16,
+		},
+	},
+	) {
+
+		if clay.UI(clay.ID("HeaderBar"))(
+		{
+			layout = {
+				sizing = {height = clay.SizingFixed(60), width = clay.SizingGrow()},
+				layoutDirection = .LeftToRight,
+				childGap = 16,
+				childAlignment = {y = .Center},
+				padding = {left = 16, right = 16},
+			},
+			backgroundColor = segmentColor,
+			cornerRadius = radius,
+		},
+		) {
+			if selectedScreen != .Timer {
+				HeaderButton("Timer", rawptr(uintptr(int(Screens.Timer))))
+			}
+			if selectedScreen != .List {
+				HeaderButton("List", rawptr(uintptr(int(Screens.List))))
+			}
+			if selectedScreen != .Labels {
+				HeaderButton("Labels", rawptr(uintptr(int(Screens.Labels))))
+			}
+			if clay.UI()({layout = {sizing = {width = clay.SizingGrow()}}}) {
+			}
+			//any other header stuff goes here
+		}
+		if clay.UI(clay.ID("LowerContent"))(
+		{layout = {sizing = sizingExpand, layoutDirection = .LeftToRight, childGap = 16}},
+		) {
+			if clay.UI(clay.ID("MainContent"))(
+			{
+				layout = {
+					sizing = sizingExpand,
+					layoutDirection = .TopToBottom,
+					childGap = 16,
+					padding = {16, 16, 16, 16},
+				},
+				backgroundColor = segmentColor,
+				cornerRadius = radius,
+				clip = {vertical = true, horizontal = true, childOffset = clay.GetScrollOffset()},
+			},
+			) {
+				#partial switch (selectedScreen) {
+				case .Timer:
+					TimerView()
+					break
+
+				}
+			}
+		}
+	}
+	return clay.EndLayout(frametime)
+}
+
+loadFont :: proc(fontId: u16, fontSize: u16, path: cstring) {
+	assign_at(
+		&raylibFonts,
+		fontId,
+		RaylibFont {
+			font = raylib.LoadFontEx(path, cast(i32)fontSize * 2, nil, 0),
+			fontId = cast(u16)fontId,
+		},
+	)
+	raylib.SetTextureFilter(raylibFonts[fontId].font.texture, raylib.TextureFilter.TRILINEAR)
+}
+
+errorHandler :: proc "c" (errorData: clay.ErrorData) {
+	if (errorData.errorType == clay.ErrorType.DuplicateId) {
+		// etc
+	}
+}
 
 main :: proc() {
-	context.logger = log.create_console_logger()
-	defaultContext = context
-	sdl.SetLogPriorities(.VERBOSE)
-	sdl.SetLogOutputFunction(
-		proc "c" (
-			userdata: rawptr,
-			category: sdl.LogCategory,
-			priority: sdl.LogPriority,
-			message: cstring,
-		) {
-			context = defaultContext
-			log.debugf("sdl {} [{}]: {}", category, priority, message)
-		},
-		nil,
+	minMemorySize: c.size_t = cast(c.size_t)clay.MinMemorySize()
+	memory := make([^]u8, minMemorySize)
+	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(minMemorySize, memory)
+	clay.Initialize(
+		arena,
+		{cast(f32)raylib.GetScreenWidth(), cast(f32)raylib.GetScreenHeight()},
+		{handler = errorHandler},
 	)
+	clay.SetMeasureTextFunction(MeasureText, nil)
 
-	ok := sdl.Init({.VIDEO})
-	assert(ok)
-	defer sdl.Quit()
+	raylib.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .MSAA_4X_HINT})
+	raylib.InitWindow(windowWidth, windowHeight, "Raylib Odin Example")
+	raylib.SetTargetFPS(raylib.GetMonitorRefreshRate(0))
+	loadFont(FONT_ID_TITLE_56, 56, "resources/Calistoga-Regular.ttf")
+	loadFont(FONT_ID_TITLE_52, 52, "resources/Calistoga-Regular.ttf")
+	loadFont(FONT_ID_TITLE_48, 48, "resources/Calistoga-Regular.ttf")
+	loadFont(FONT_ID_TITLE_36, 36, "resources/Calistoga-Regular.ttf")
+	loadFont(FONT_ID_TITLE_32, 32, "resources/Calistoga-Regular.ttf")
+	loadFont(FONT_ID_BODY_36, 36, "resources/Quicksand-Semibold.ttf")
+	loadFont(FONT_ID_BODY_30, 30, "resources/Quicksand-Semibold.ttf")
+	loadFont(FONT_ID_BODY_28, 28, "resources/Quicksand-Semibold.ttf")
+	loadFont(FONT_ID_BODY_24, 24, "resources/Quicksand-Semibold.ttf")
+	loadFont(FONT_ID_BODY_16, 16, "resources/Quicksand-Semibold.ttf")
 
-	window := sdl.CreateWindow("simple time tracker", 960, 540, {.RESIZABLE})
-	if window == nil {
-		fmt.eprintln(sdl.GetError())
-		return
-	}
-	defer sdl.DestroyWindow(window)
-	assert(window != nil)
+	debugModeEnabled: bool = false
 
-	renderer := sdl.CreateRenderer(window, nil)
-	assert(renderer != nil)
-
-	state.atlas_texture = sdl.CreateTexture(
-		renderer,
-		.RGBA32,
-		.TARGET,
-		mu.DEFAULT_ATLAS_WIDTH,
-		mu.DEFAULT_ATLAS_HEIGHT,
-	)
-	assert(state.atlas_texture != nil, "no atlas texture")
-
-	ok = sdl.SetTextureBlendMode(state.atlas_texture, sdl.BLENDMODE_BLEND)
-	assert(ok)
-
-	pixels := make([][4]u8, mu.DEFAULT_ATLAS_WIDTH * mu.DEFAULT_ATLAS_HEIGHT)
-	for alpha, i in mu.default_atlas_alpha {
-		pixels[i].rgb = 0xff
-		pixels[i].a = alpha
-	}
-
-	ok = sdl.UpdateTexture(state.atlas_texture, nil, raw_data(pixels), 4 * mu.DEFAULT_ATLAS_WIDTH)
-	assert(ok)
-
-	ctx := &state.mu_ctx
-	mu.init(ctx, set_clipboard = proc(user_data: rawptr, text: string) -> (ok: bool) {
-			cstr := strings.clone_to_cstring(text)
-			sdl.SetClipboardText(cstr)
-			delete(cstr)
-			return true
-		}, get_clipboard = proc(user_data: rawptr) -> (text: string, ok: bool) {
-			if sdl.HasClipboardText() {
-				text = string(cstring(sdl.GetClipboardText()))
-				ok = true
-			}
-			return
-		})
-
-	ctx.text_width = mu.default_atlas_text_width
-	ctx.text_height = mu.default_atlas_text_height
-
-
-	// NOTE: This allows for continuous rendering as the window resizes rather than waiting for the resize to finish
-	Resize_Data :: struct {
-		ctx:      ^mu.Context,
-		renderer: ^sdl.Renderer,
-	}
-	ok = sdl.AddEventWatch(proc "c" (data: rawptr, event: ^sdl.Event) -> bool {
-			if event.type == .WINDOW_RESIZED {
-				resize_data := (^Resize_Data)(data)
-				render(resize_data.ctx, resize_data.renderer)
-			}
-			return true
-		}, &Resize_Data{ctx = ctx, renderer = renderer})
-	assert(ok)
-
-	main_loop: for {
-		free_all(context.temp_allocator)
-
-		for e: sdl.Event; sdl.PollEvent(&e);  /**/{
-			#partial switch e.type {
-			case .QUIT:
-				break main_loop
-			case .MOUSE_MOTION:
-				mu.input_mouse_move(ctx, i32(e.motion.x), i32(e.motion.y))
-			case .MOUSE_WHEEL:
-				mu.input_scroll(ctx, i32(e.wheel.x) * 30, i32(e.wheel.y) * -30)
-			case .TEXT_INPUT:
-				mu.input_text(ctx, string(e.text.text))
-
-			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
-				fn := mu.input_mouse_down if e.type == .MOUSE_BUTTON_DOWN else mu.input_mouse_up
-				switch e.button.button {
-				case sdl.BUTTON_LEFT:
-					fn(ctx, i32(e.button.x), i32(e.button.y), .LEFT)
-				case sdl.BUTTON_MIDDLE:
-					fn(ctx, i32(e.button.x), i32(e.button.y), .MIDDLE)
-				case sdl.BUTTON_RIGHT:
-					fn(ctx, i32(e.button.x), i32(e.button.y), .RIGHT)
-				}
-
-			case .KEY_DOWN, .KEY_UP:
-				if e.type == .KEY_UP && e.key.scancode == .ESCAPE {
-					ok = sdl.PushEvent(&sdl.Event{type = .QUIT})
-				}
-
-				fn := mu.input_key_down if e.type == .KEY_DOWN else mu.input_key_up
-
-				#partial switch e.key.scancode {
-				case .LSHIFT:
-					fn(ctx, .SHIFT)
-				case .RSHIFT:
-					fn(ctx, .SHIFT)
-				case .LCTRL:
-					fn(ctx, .CTRL)
-				case .RCTRL:
-					fn(ctx, .CTRL)
-				case .LALT:
-					fn(ctx, .ALT)
-				case .RALT:
-					fn(ctx, .ALT)
-				case .RETURN:
-					fn(ctx, .RETURN)
-				case .KP_ENTER:
-					fn(ctx, .RETURN)
-				case .BACKSPACE:
-					fn(ctx, .BACKSPACE)
-
-				case .LEFT:
-					fn(ctx, .LEFT)
-				case .RIGHT:
-					fn(ctx, .RIGHT)
-				case .HOME:
-					fn(ctx, .HOME)
-				case .END:
-					fn(ctx, .END)
-				case .A:
-					fn(ctx, .A)
-				case .X:
-					fn(ctx, .X)
-				case .C:
-					fn(ctx, .C)
-				case .V:
-					fn(ctx, .V)
-				}
-			}
+	for !raylib.WindowShouldClose() {
+		defer free_all(context.temp_allocator)
+		windowWidth = raylib.GetScreenWidth()
+		windowHeight = raylib.GetScreenHeight()
+		if (raylib.IsKeyPressed(.D)) {
+			debugModeEnabled = !debugModeEnabled
+			clay.SetDebugModeEnabled(debugModeEnabled)
 		}
-
-		mu.begin(ctx)
-		all_windows(ctx)
-		mu.end(ctx)
-
-		render(ctx, renderer)
-	}
-}
-
-// NOTE: This is marked as "contextless" so that the 'context' does need to be set up in the `sdl.AddEventWatch` callback
-render :: proc "contextless" (ctx: ^mu.Context, renderer: ^sdl.Renderer) {
-	render_texture :: proc "contextless" (
-		renderer: ^sdl.Renderer,
-		dst: ^sdl.FRect,
-		src: mu.Rect,
-		color: mu.Color,
-	) {
-		dst.w = f32(src.w)
-		dst.h = f32(src.h)
-
-		sdl.SetTextureAlphaMod(state.atlas_texture, color.a)
-		sdl.SetTextureColorMod(state.atlas_texture, color.r, color.g, color.b)
-		sdl.RenderTexture(
-			renderer,
-			state.atlas_texture,
-			&sdl.FRect{f32(src.x), f32(src.y), f32(src.w), f32(src.h)},
-			dst,
+		clay.SetPointerState(
+			transmute(clay.Vector2)raylib.GetMousePosition(),
+			raylib.IsMouseButtonDown(raylib.MouseButton.LEFT),
 		)
+		clay.UpdateScrollContainers(
+			false,
+			transmute(clay.Vector2)raylib.GetMouseWheelMoveV() * 10,
+			raylib.GetFrameTime(),
+		)
+		clay.SetLayoutDimensions(
+			{cast(f32)raylib.GetScreenWidth(), cast(f32)raylib.GetScreenHeight()},
+		)
+		renderCommands := CreateLayout(raylib.GetFrameTime())
+		raylib.BeginDrawing()
+		ClayRaylibRender(&renderCommands)
+		raylib.EndDrawing()
 	}
-
-	viewport_rect := &sdl.Rect{}
-	sdl.GetCurrentRenderOutputSize(renderer, &viewport_rect.w, &viewport_rect.h)
-	sdl.SetRenderViewport(renderer, viewport_rect)
-	sdl.SetRenderClipRect(renderer, viewport_rect)
-	sdl.RenderClear(renderer)
-
-	command_backing: ^mu.Command
-	for variant in mu.next_command_iterator(ctx, &command_backing) {
-		switch cmd in variant {
-		case ^mu.Command_Text:
-			dst := sdl.FRect{f32(cmd.pos.x), f32(cmd.pos.y), 0, 0}
-			for ch in cmd.str {
-				if ch & 0xc0 != 0x80 {
-					r := min(int(ch), 127)
-					src := mu.default_atlas[mu.DEFAULT_ATLAS_FONT + r]
-					render_texture(renderer, &dst, src, cmd.color)
-					dst.x += dst.w
-				}
-			}
-		case ^mu.Command_Rect:
-			sdl.SetRenderDrawColor(renderer, cmd.color.r, cmd.color.g, cmd.color.b, cmd.color.a)
-			sdl.RenderFillRect(
-				renderer,
-				&sdl.FRect{f32(cmd.rect.x), f32(cmd.rect.y), f32(cmd.rect.w), f32(cmd.rect.h)},
-			)
-		case ^mu.Command_Icon:
-			src := mu.default_atlas[cmd.id]
-			x := cmd.rect.x + (cmd.rect.w - src.w) / 2
-			y := cmd.rect.y + (cmd.rect.h - src.h) / 2
-			render_texture(renderer, &sdl.FRect{f32(x), f32(y), 0, 0}, src, cmd.color)
-		case ^mu.Command_Clip:
-			sdl.SetRenderClipRect(
-				renderer,
-				&sdl.Rect{cmd.rect.x, cmd.rect.y, cmd.rect.w, cmd.rect.h},
-			)
-		case ^mu.Command_Jump:
-			unreachable()
-		}
-	}
-
-	sdl.RenderPresent(renderer)
-}
-
-all_windows :: proc(ctx: ^mu.Context) {
-	@(static) opts := mu.Options{.NO_CLOSE}
-
-	if mu.window(ctx, "timer", mu.Rect{0, 0, 960, 540}, {.NO_TITLE, .NO_CLOSE}) {
-		mu.layout_row(ctx, {1}, 200)
-		mu.label(ctx, "")
-		mu.layout_row(ctx, {300, 100, 140}, 40)
-		mu.label(ctx, "")
-		mu.label(ctx, "start tracking")
-		if .SUBMIT in mu.button(ctx, "", state.is_tracking ? .CLOSE : .CHECK) {
-			state.is_tracking = !state.is_tracking
-			if state.is_tracking {
-				now := time.to_unix_seconds(time.now())
-				state.time_blocks[state.n_time_blocks] = time_blocks {
-					start = now,
-					end   = 0,
-				}
-				state.n_time_blocks += 1
-			} else {
-				now := time.to_unix_seconds(time.now())
-				state.time_blocks[state.n_time_blocks - 1] = time_blocks {
-					start = state.time_blocks[state.n_time_blocks - 1].start,
-					end   = now,
-				}
-			}
-		}
-		if state.n_time_blocks > 0 {
-			block := time_blocks {
-				start = state.time_blocks[state.n_time_blocks - 1].start,
-				end   = state.time_blocks[state.n_time_blocks - 1].end,
-			}
-			if block.end == 0 {
-				block.end = time.to_unix_seconds(time.now())
-			}
-			mu.label(ctx, "")
-		}
-	}
-
-	// if mu.window(ctx, "Demo Window", {40, 40, 300, 450}, opts) {
-	//
-	// 	if .ACTIVE in mu.header(ctx, "Test Buttons", {.EXPANDED}) {
-	// 		mu.layout_row(ctx, {86, -110, -1})
-	// 		mu.label(ctx, "Test buttons 1:")
-	// 		if .SUBMIT in mu.button(ctx, "Button 1") {}
-	// 		if .SUBMIT in mu.button(ctx, "Button 2") {}
-	// 		mu.label(ctx, "Test buttons 2:")
-	// 		if .SUBMIT in mu.button(ctx, "Button 3") {}
-	// 		if .SUBMIT in mu.button(ctx, "Button 4") {}
-	// 	}
-	// }
-
 }
